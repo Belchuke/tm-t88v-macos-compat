@@ -1,81 +1,159 @@
-# TM-T88V macOS Compatibility Layer
+# TM-T88V macOS Compatibility
 
-A native macOS compatibility layer for Epson TM-T88V USB receipt printers.
+A native Apple Silicon compatibility layer for the Epson TM-T88V USB receipt printer.
 
-The project exists to replace Epson's legacy Intel-based macOS printing components with a modern Apple Silicon-native solution while preserving standard macOS printing support for existing applications.
+The project replaces Epson's legacy Intel-based macOS printing components with a modern native solution while preserving the standard macOS printing workflow used by existing applications.
 
-## Goal
+## How it works
 
-Preserve the existing workflow:
+Applications continue to print through the normal macOS printing system:
 
+```text
 Application
-→ macOS Print
-→ EPSON TM-T88V
-
-while replacing the legacy Epson driver path with:
-
-macOS Print
-→ Local IPP printer
-→ Native compatibility service
-→ ESC/POS
-→ USB
-→ Epson TM-T88V
-
-No changes should be required in applications that already use the built-in macOS printing system.
-
-## Status
-
-Milestones 1-2 (USB discovery, direct ESC/POS) are verified on hardware. Milestone 3 (raster) awaits
-a physical print check. Milestone 4 (loopback IPP service) is implemented and tested in sink mode only.
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/IPP_ARCHITECTURE.md](docs/IPP_ARCHITECTURE.md)
-and [docs/TESTING.md](docs/TESTING.md).
-
-## Build
-
-Requires the Xcode Command Line Tools (Swift 6). No third-party dependencies.
-
+    ↓
+macOS Print / CUPS
+    ↓
+Local IPP Printer
+    ↓
+Native ARM64 Compatibility Service
+    ↓
+ESC/POS
+    ↓
+USB
+    ↓
+Epson TM-T88V
 ```
-./scripts/build.sh     # release build into dist/, verifies arm64 and system-only linkage
-./scripts/test.sh      # unit and simulated tests
+
+Applications that already use the built-in macOS printing system do not need to be modified.
+
+## Features
+
+- Native Apple Silicon / ARM64
+- Epson TM-T88V USB support
+- Standard macOS printing through CUPS
+- No Rosetta dependency
+- No DriverKit or system extension
+- Native Swift implementation
+- Direct USB communication through `IOUSBHost`
+- Local IPP print service
+- Loopback-only networking
+- No Bonjour or network printer advertising
+- Printer queue is not shared
+- 80 mm and 58 mm paper configurations
+- 180 DPI raster printing
+- Automatic paper cutting
+- Signed and notarized macOS installer
+- Automatic background service using `launchd`
+- No third-party runtime dependencies
+
+## Requirements
+
+- macOS 13 or newer
+- Apple Silicon Mac
+- Epson TM-T88V
+- USB connection to the printer
+
+## Installation
+
+Download the latest `.pkg` from the GitHub Releases page and run the installer.
+
+The installer will:
+
+- install the native compatibility service
+- start the background service
+- create the `TMT88V_Compat` printer queue
+- configure the printer to use the local IPP service
+
+Existing Epson printer drivers and queues are not removed or modified.
+
+After installation, applications can print to:
+
+```text
+TMT88V_Compat
+```
+
+like any other macOS printer.
+
+## Building from source
+
+Requires Swift 6 and the Xcode Command Line Tools.
+
+```bash
+./scripts/build.sh
+```
+
+Run the test suite with:
+
+```bash
+./scripts/test.sh
+```
+
+Build output is placed in:
+
+```text
+dist/
 ```
 
 ## Tools
 
-```
-dist/tmt88v-diag             # USB descriptors, endpoints, IEEE 1284 ID
-dist/tmt88v-diag --status    # plus real-time ESC/POS status over bulk IN
-dist/tmt88v-diag --all       # every Epson USB device, not only TM-T88V
-dist/tmt88v-test             # print test receipt and cut, directly over USB
-dist/tmt88v-test --dry-run receipt.bin
+### Printer diagnostics
+
+```bash
+dist/tmt88v-diag --status
 ```
 
-```
-dist/tmt88v-raster-test --pattern                 # print the built-in raster test pattern
-dist/tmt88v-raster-test image.png                 # print a PNG/JPEG, scale-down only
-dist/tmt88v-service --sink /tmp/out/ --port 8632  # local IPP printer, ESC/POS to files, no USB
-dist/tmt88v-service                               # local IPP printer printing over USB
-```
+Displays the connected TM-T88V USB information and printer status.
 
-Neither tool needs root, entitlements, or a system extension.
+### Direct print test
 
-## Verify native Apple Silicon binaries
-
-```
-file dist/tmt88v-diag dist/tmt88v-test
-lipo -archs dist/tmt88v-diag dist/tmt88v-test
-otool -L dist/tmt88v-diag dist/tmt88v-test
+```bash
+dist/tmt88v-test
 ```
 
-## Signing and distribution
+Prints a test receipt directly through USB without using CUPS.
 
-Binaries are signed with a Developer ID Application identity passed in `SIGNING_IDENTITY` (never
-stored in the repository):
+### Raster test
 
-```
-./scripts/signing-identities.sh                   # find your identity
-SIGNING_IDENTITY="Developer ID Application: Name (TEAMID)" ./scripts/build.sh
-./scripts/verify-signing.sh
+```bash
+dist/tmt88v-raster-test --pattern
 ```
 
-See [docs/SIGNING.md](docs/SIGNING.md), [docs/INSTALLER.md](docs/INSTALLER.md),
-[docs/NOTARIZATION.md](docs/NOTARIZATION.md) and [docs/UNINSTALL.md](docs/UNINSTALL.md).
+Prints the built-in raster test pattern.
+
+### Print service
+
+```bash
+dist/tmt88v-service
+```
+
+Starts the local IPP compatibility service.
+
+The default endpoint is:
+
+```text
+ipp://127.0.0.1:8632/ipp/print
+```
+
+## Uninstall
+
+The installed package includes an uninstaller:
+
+```bash
+sudo "/Library/Application Support/TMT88VCompat/uninstall.sh" --yes
+```
+
+The uninstaller removes only resources created by this project.
+
+Existing Epson printer drivers, Epson queues, and unrelated CUPS configuration are left untouched.
+
+## Known limitations
+
+- Currently targets the Epson TM-T88V
+- Epson Vendor Class USB mode has not been fully hardware-tested
+- Cash drawer and buzzer controls are not exposed through the macOS print interface
+- Epson-specific printer options may not have direct equivalents in the driverless print queue
+- Compatibility with application-specific printer settings may vary
+
+## License
+
+See [LICENSE](LICENSE).

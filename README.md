@@ -25,8 +25,10 @@ No changes should be required in applications that already use the built-in macO
 
 ## Status
 
-Milestones 1 (USB discovery) and 2 (direct ESC/POS over USB) are implemented.
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/TESTING.md](docs/TESTING.md).
+Milestones 1-2 (USB discovery, direct ESC/POS) are verified on hardware. Milestone 3 (raster) awaits
+a physical print check. Milestone 4 (loopback IPP service) is implemented and tested in sink mode only.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/IPP_ARCHITECTURE.md](docs/IPP_ARCHITECTURE.md)
+and [docs/TESTING.md](docs/TESTING.md).
 
 ## Build
 
@@ -45,6 +47,13 @@ dist/tmt88v-diag --status    # plus real-time ESC/POS status over bulk IN
 dist/tmt88v-diag --all       # every Epson USB device, not only TM-T88V
 dist/tmt88v-test             # print test receipt and cut, directly over USB
 dist/tmt88v-test --dry-run receipt.bin
+```
+
+```
+dist/tmt88v-raster-test --pattern                 # print the built-in raster test pattern
+dist/tmt88v-raster-test image.png                 # print a PNG/JPEG, scale-down only
+dist/tmt88v-service --sink /tmp/out/ --port 8632  # local IPP printer, ESC/POS to files, no USB
+dist/tmt88v-service                               # local IPP printer printing over USB
 ```
 
 Neither tool needs root, entitlements, or a system extension.

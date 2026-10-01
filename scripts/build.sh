@@ -7,7 +7,7 @@ swift build -c release --arch arm64
 BIN_DIR="$(swift build -c release --arch arm64 --show-bin-path)"
 
 mkdir -p dist
-for tool in tmt88v-diag tmt88v-test; do
+for tool in tmt88v-diag tmt88v-test tmt88v-raster-test tmt88v-service; do
     cp "$BIN_DIR/$tool" "dist/$tool"
 done
 

@@ -44,7 +44,17 @@ Applications that already use the built-in macOS printing system do not need to 
 - Automatic paper cutting
 - Signed and notarized macOS installer
 - Automatic background service using `launchd`
+- Automatic updates from official GitHub Releases (from v0.2.0)
 - No third-party runtime dependencies
+
+## Updates
+
+Starting with v0.2.0, updates are installed automatically in the background. Nothing needs to be done after installing.
+
+- Updates are downloaded only from the official GitHub Releases of this project.
+- Each package is verified before installation: it must be signed by this project's Developer ID and notarized by Apple.
+- If anything cannot be verified, the current installation is left untouched.
+- To turn automatic updates off, set `"automaticUpdates": false` in `/Library/Application Support/TMT88VCompat/config.json`.
 
 ## Requirements
 

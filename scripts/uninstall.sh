@@ -20,6 +20,9 @@ PREFIX="${BUNDLE_ID_PREFIX:-com.belchuke.tmt88vcompat}"
 SERVICE_BINARY="/Library/PrivilegedHelperTools/${SERVICE_BINARY_NAME:-$PREFIX.daemon}"
 LEGACY_SERVICE_BINARY="/Library/PrivilegedHelperTools/$LABEL"
 PLIST="/Library/LaunchDaemons/$LABEL.plist"
+UPDATER_LABEL="${UPDATER_LABEL:-$PREFIX.updater}"
+UPDATER_BINARY="/Library/PrivilegedHelperTools/${UPDATER_BINARY_NAME:-$PREFIX.updater}"
+UPDATER_PLIST="/Library/LaunchDaemons/$UPDATER_LABEL.plist"
 SUPPORT_DIR="/Library/Application Support/TMT88VCompat"
 LOG_DIR="/Library/Logs/TMT88VCompat"
 
@@ -60,9 +63,10 @@ cat <<T
 This will remove:
   launchd job        $LABEL
   launchd plist      $PLIST
+  updater job        $UPDATER_LABEL (plist $UPDATER_PLIST, binary $UPDATER_BINARY)
   service binary     $SERVICE_BINARY
   print queue        $QUEUE (only if its device URI is the local service on port $PORT)
-  support directory  $SUPPORT_DIR
+  support directory  $SUPPORT_DIR (includes config.json and the updater state)
   log directory      $LOG_DIR$([[ $keep_logs == 1 ]] && echo " (kept: --keep-logs)")
   package receipt    $PKG_ID
 It will NOT touch any Epson queue (for example EPSON_TM_T88V), /Library/Printers, or any other CUPS setting.
@@ -73,6 +77,7 @@ if [[ "$assume_yes" != "1" ]]; then
     [[ "$answer" == "y" || "$answer" == "Y" ]] || { echo "aborted"; exit 1; }
 fi
 
+run launchctl bootout "system/$UPDATER_LABEL" 2>/dev/null || true
 run launchctl bootout "system/$LABEL" 2>/dev/null || true
 
 if lpstat -v "$QUEUE" > /dev/null 2>&1; then
@@ -87,7 +92,7 @@ else
     echo "queue $QUEUE not present"
 fi
 
-run rm -f "$ROOT$PLIST" "$ROOT$SERVICE_BINARY" "$ROOT$LEGACY_SERVICE_BINARY"
+run rm -f "$ROOT$PLIST" "$ROOT$SERVICE_BINARY" "$ROOT$LEGACY_SERVICE_BINARY" "$ROOT$UPDATER_PLIST" "$ROOT$UPDATER_BINARY"
 run rm -rf "$ROOT$SUPPORT_DIR"
 [[ "$keep_logs" == "1" ]] || run rm -rf "$ROOT$LOG_DIR"
 [[ -n "$ROOT" ]] || run pkgutil --forget "$PKG_ID" > /dev/null 2>&1 || true

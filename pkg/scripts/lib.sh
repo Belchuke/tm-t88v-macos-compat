@@ -12,12 +12,17 @@ PLIST="@PLIST_PATH@"
 SUPPORT_DIR="@SUPPORT_DIR@"
 LOG_DIR="@LOG_DIR@"
 SERVICE_USER="@SERVICE_USER@"
+UPDATER_LABEL="@UPDATER_LABEL@"
+UPDATER_BINARY="@UPDATER_BINARY_PATH@"
+UPDATER_PLIST="@UPDATER_PLIST_PATH@"
+CONFIG_FILE="@SUPPORT_DIR@/config.json"
 MIN_MACOS_MAJOR=@MIN_MACOS_MAJOR@
 
 ROOT="${TMT88V_ROOT:-}"
 STATE_DIR="$ROOT$SUPPORT_DIR/state"
 BACKUP_DIR="$STATE_DIR/backup"
 STATE_FILE="$STATE_DIR/install-state"
+UPDATE_MARKER="$STATE_DIR/update-in-progress"
 INSTALL_LOG="$ROOT$LOG_DIR/install.log"
 
 log() {
@@ -162,6 +167,15 @@ collect_diagnostics() {
     log "==== end of diagnostics ===="
 }
 
+# True while the automatic updater is running THIS installation (it writes its pid to the marker first). In that case the
+# updater's own launchd job must not be booted out or restarted: that would kill the updater and the installer it started.
+update_in_progress() {
+    [[ -f "$UPDATE_MARKER" ]] || return 1
+    local pid
+    pid="$(head -n 1 "$UPDATE_MARKER" 2>/dev/null)"
+    [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
+}
+
 # Undo only what this installer run created. Never touches any other queue or any Epson file.
 rollback() {
     log "rolling back resources created by this installer run"
@@ -179,6 +193,14 @@ rollback() {
     elif [[ "$(state_get binary_existed_before)" == "0" ]]; then
         rm -f "$ROOT$SERVICE_BINARY" "$ROOT$PLIST"
         log "removed newly installed service files"
+    fi
+    if [[ "$(state_get updater_binary_existed_before)" == "1" ]]; then
+        [[ -f "$BACKUP_DIR/updater" ]] && cp -p "$BACKUP_DIR/updater" "$ROOT$UPDATER_BINARY"
+        [[ -f "$BACKUP_DIR/updater.plist" ]] && cp -p "$BACKUP_DIR/updater.plist" "$ROOT$UPDATER_PLIST"
+        log "restored previous updater files"
+    elif [[ "$(state_get updater_binary_existed_before)" == "0" ]]; then
+        rm -f "$ROOT$UPDATER_BINARY" "$ROOT$UPDATER_PLIST"
+        log "removed newly installed updater files"
     fi
     state_set phase rolled-back
 }

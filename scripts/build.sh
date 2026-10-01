@@ -15,7 +15,7 @@ done
 if [[ -n "${SIGNING_IDENTITY:-}" ]]; then
     ./scripts/sign.sh
 else
-    echo "SIGNING_IDENTITY not set: binaries are NOT Developer ID signed (see docs/SIGNING.md)"
+    echo "SIGNING_IDENTITY not set: binaries are NOT Developer ID signed"
 fi
 
 status=0

@@ -25,10 +25,19 @@ make_stubs() {
     cat > "$bin/launchctl" <<'S'
 #!/bin/bash
 echo "launchctl $*" >> "$STUB_STATE/calls"
+label=""
 case "$1" in
-    print) [[ -f "$STUB_STATE/loaded" ]] ;;
-    bootstrap) [[ -n "${STUB_FAIL_BOOTSTRAP:-}" ]] && exit 1; touch "$STUB_STATE/loaded" ;;
-    bootout) rm -f "$STUB_STATE/loaded" ;;
+    print|bootout|enable) label="${2#system/}" ;;
+    bootstrap) label="$(basename "${3%.plist}")" ;;
+esac
+tag=service; [[ "$label" == *.updater ]] && tag=updater
+case "$1" in
+    print) [[ -f "$STUB_STATE/loaded.$tag" ]] ;;
+    bootstrap)
+        [[ "$tag" == "service" && -n "${STUB_FAIL_BOOTSTRAP:-}" ]] && exit 1
+        [[ "$tag" == "updater" && -n "${STUB_FAIL_BOOTSTRAP_UPDATER:-}" ]] && exit 1
+        touch "$STUB_STATE/loaded.$tag" ;;
+    bootout) rm -f "$STUB_STATE/loaded.$tag" ;;
     *) exit 0 ;;
 esac
 S
@@ -109,7 +118,7 @@ new_fixture() {
     for s in preinstall postinstall lib.sh; do render_template "pkg/scripts/$s" "$F/scripts/$s"; done
     chmod +x "$F/scripts/preinstall" "$F/scripts/postinstall"
     export TMT88V_ROOT="$F/root" STUB_STATE="$F/state" PATH="$F/stubs:$ORIG_PATH"
-    unset STUB_FAIL_BOOTSTRAP STUB_FAIL_LPADMIN STUB_SERVICE_DOWN STUB_ARM STUB_MACOS STUB_PORT_BUSY STUB_BINARY_EXIT TMT88V_INSTALLER_KEEP_FAILED_STATE STUB_LPSTAT_LANG STUB_CANONICAL_URI STUB_IGNORE_SHARED STUB_QUEUE_STATE STUB_ACCEPTING STUB_FAIL_URI_PROBE
+    unset STUB_FAIL_BOOTSTRAP STUB_FAIL_LPADMIN STUB_SERVICE_DOWN STUB_ARM STUB_MACOS STUB_PORT_BUSY STUB_BINARY_EXIT TMT88V_INSTALLER_KEEP_FAILED_STATE STUB_LPSTAT_LANG STUB_CANONICAL_URI STUB_IGNORE_SHARED STUB_QUEUE_STATE STUB_ACCEPTING STUB_FAIL_URI_PROBE STUB_FAIL_BOOTSTRAP_UPDATER STUB_UPDATER_EXIT
 }
 
 # place_payload CONTENT: simulates Installer laying down the payload files
@@ -118,11 +127,16 @@ place_payload() {
     printf '#!/bin/bash\n# %s\nexit "${STUB_BINARY_EXIT:-0}"\n' "${1:-new}" > "$TMT88V_ROOT$SERVICE_BINARY_PATH"
     chmod +x "$TMT88V_ROOT$SERVICE_BINARY_PATH"
     echo "plist" > "$TMT88V_ROOT$PLIST_PATH"
+    mkdir -p "$TMT88V_ROOT$(dirname "$UPDATER_BINARY_PATH")" "$TMT88V_ROOT$(dirname "$UPDATER_PLIST_PATH")"
+    printf '#!/bin/bash\n# %s\nexit "${STUB_UPDATER_EXIT:-0}"\n' "${2:-new-updater}" > "$TMT88V_ROOT$UPDATER_BINARY_PATH"
+    chmod +x "$TMT88V_ROOT$UPDATER_BINARY_PATH"
+    echo "updater-plist-${2:-new-updater}" > "$TMT88V_ROOT$UPDATER_PLIST_PATH"
+    printf '{\n  "automaticUpdates": true\n}\n' > "$TMT88V_ROOT$SUPPORT_DIR/share/config.default.json"
 }
 
 run_install() {
     "$F/scripts/preinstall" > "$F/pre.out" 2>&1 || return 11
-    place_payload "${1:-new}"
+    place_payload "${1:-new}" "${2:-new-updater}"
     "$F/scripts/postinstall" > "$F/post.out" 2>&1 || return 12
 }
 
@@ -130,7 +144,9 @@ queue_count() { grep -c "^$1|" "$STUB_STATE/queues" || true; }
 calls_have() { grep -qF -- "$1" "$STUB_STATE/calls"; }
 calls_lack() { ! grep -qF -- "$1" "$STUB_STATE/calls" 2>/dev/null; }
 state_is() { grep -qx "$1=$2" "$TMT88V_ROOT$SUPPORT_DIR/state/install-state"; }
-service_running() { [[ -f "$STUB_STATE/loaded" ]]; }
+service_running() { [[ -f "$STUB_STATE/loaded.service" ]]; }
+updater_running() { [[ -f "$STUB_STATE/loaded.updater" ]]; }
+mode_of() { stat -f %Lp "$1"; }
 
 ORIG_PATH="$PATH"
 
@@ -215,7 +231,7 @@ echo "rollback"
 new_fixture down; export STUB_SERVICE_DOWN=1
 run_install; check "service that never answers fails the install" equals "$?" "12"
 check "failed install: no queue created" equals "$(queue_count "$QUEUE_NAME")" "0"
-check "failed install: service stopped" test ! -f "$STUB_STATE/loaded"
+check "failed install: service stopped" test ! -f "$STUB_STATE/loaded.service"
 check "failed install: new binary removed" test ! -e "$TMT88V_ROOT$SERVICE_BINARY_PATH"
 check "failed install: new plist removed" test ! -e "$TMT88V_ROOT$PLIST_PATH"
 check "failed install: state rolled back" state_is phase rolled-back
@@ -223,7 +239,7 @@ check "failed install: state rolled back" state_is phase rolled-back
 new_fixture lpfail; echo "EPSON_TM_T88V|usb://x|false" >> "$STUB_STATE/queues"; export STUB_FAIL_LPADMIN=1
 run_install; check "queue creation failure fails the install" equals "$?" "12"
 check "queue failure: no queue left behind" equals "$(queue_count "$QUEUE_NAME")" "0"
-check "queue failure: service stopped" test ! -f "$STUB_STATE/loaded"
+check "queue failure: service stopped" test ! -f "$STUB_STATE/loaded.service"
 check "queue failure: Epson queue untouched" grep -q "^EPSON_TM_T88V|" "$STUB_STATE/queues"
 check "queue failure: message is clear" file_has "$F/post.out" "lpadmin could not create or update queue"
 
@@ -365,18 +381,118 @@ check "reject LAN address" uri_case reject "ipp://10.0.0.7:$IPP_PORT/ipp/print"
 check "reject empty" uri_case reject ""
 check "uninstall.sh applies the same rule" bash -c "PORT=$IPP_PORT; eval \"\$(sed -n '/^LOOPBACK_URI_REGEX=/,/^}/p' scripts/uninstall.sh)\"; uri_is_our_service 'ipp://localhost:$IPP_PORT/ipp/print' && ! uri_is_our_service 'ipp://10.0.0.7:$IPP_PORT/ipp/print'"
 
+
+echo "automatic updater: package scripts, plist and config"
+UPDATER_PLIST_OUT="$TMP/updater.plist"
+render_template pkg/launchd/updater.plist.template "$UPDATER_PLIST_OUT"
+check "updater plist lints" plutil -lint "$UPDATER_PLIST_OUT"
+check "updater label" equals "$(plutil -extract Label raw "$UPDATER_PLIST_OUT")" "com.belchuke.tmt88vcompat.updater"
+check "updater label equals config" equals "$UPDATER_LABEL" "com.belchuke.tmt88vcompat.updater"
+check "updater binary path" equals "$(plutil -extract ProgramArguments.0 raw "$UPDATER_PLIST_OUT")" "/Library/PrivilegedHelperTools/com.belchuke.tmt88vcompat.updater"
+check "updater runs the 'run' subcommand" equals "$(plutil -extract ProgramArguments.1 raw "$UPDATER_PLIST_OUT")" "run"
+check "updater is root" equals "$(plutil -extract UserName raw "$UPDATER_PLIST_OUT")" "root"
+check "updater RunAtLoad" equals "$(plutil -extract RunAtLoad raw "$UPDATER_PLIST_OUT")" "true"
+check "updater wakes hourly (it decides in-process whether 24h+jitter has passed)" equals "$(plutil -extract StartInterval raw "$UPDATER_PLIST_OUT")" "3600"
+check "updater runs as a background process" equals "$(plutil -extract ProcessType raw "$UPDATER_PLIST_OUT")" "Background"
+check "updater is not kept alive in a loop" bash -c "! plutil -extract KeepAlive raw '$UPDATER_PLIST_OUT' >/dev/null 2>&1"
+check "updater binary file name is not bundle-style" bash -c "case '$(basename "$UPDATER_BINARY_PATH")' in *.service|*.app|*.xpc|*.bundle) exit 1;; esac"
+check "updater signing identifier" equals "$(signing_identifier tmt88v-updater)" "com.belchuke.tmt88vcompat.updater"
+check "default config enables updates" bash -c "grep -q '\"automaticUpdates\": true' pkg/share/config.default.json"
+check "package scripts never use the network" bash -c "! grep -rEq 'curl|wget|nc ' pkg/scripts"
+check "payload does not ship config.json" bash -c "! grep -q 'install.*config.json' scripts/build-pkg.sh"
+
+echo "automatic updater: installation"
+new_fixture upd
+run_install; check "install succeeds" equals "$?" "0"
+check "updater files installed" test -x "$TMT88V_ROOT$UPDATER_BINARY_PATH"
+check "updater plist installed" test -f "$TMT88V_ROOT$UPDATER_PLIST_PATH"
+check "updater job bootstrapped" updater_running
+check "service job also bootstrapped" service_running
+check "default config.json created" file_has "$TMT88V_ROOT$SUPPORT_DIR/config.json" '"automaticUpdates": true'
+check "updater binary mode 755" equals "$(mode_of "$TMT88V_ROOT$UPDATER_BINARY_PATH")" "755"
+check "updater plist mode 644" equals "$(mode_of "$TMT88V_ROOT$UPDATER_PLIST_PATH")" "644"
+check "config.json mode 644" equals "$(mode_of "$TMT88V_ROOT$SUPPORT_DIR/config.json")" "644"
+check "state directory mode 755" equals "$(mode_of "$TMT88V_ROOT$SUPPORT_DIR/state")" "755"
+check "updater bootstrapped through launchctl bootstrap" calls_have "launchctl bootstrap system $UPDATER_PLIST_PATH"
+check "install log records the new config" file_has "$TMT88V_ROOT$LOG_DIR/install.log" "created the default config.json"
+
+echo "automatic updater: config is preserved across upgrades"
+new_fixture cfg
+mkdir -p "$TMT88V_ROOT$SUPPORT_DIR"; printf '{"automaticUpdates": false}\n' > "$TMT88V_ROOT$SUPPORT_DIR/config.json"
+run_install; check "install over an existing config succeeds" equals "$?" "0"
+check "config=false is preserved" equals "$(cat "$TMT88V_ROOT$SUPPORT_DIR/config.json")" '{"automaticUpdates": false}'
+run_install; check "second upgrade succeeds" equals "$?" "0"
+check "config=false still preserved after a second upgrade" equals "$(cat "$TMT88V_ROOT$SUPPORT_DIR/config.json")" '{"automaticUpdates": false}'
+check "log says the config was kept" file_has "$TMT88V_ROOT$LOG_DIR/install.log" "kept the existing config.json"
+printf 'garbage not json' > "$TMT88V_ROOT$SUPPORT_DIR/config.json"
+run_install; check "a malformed config is not overwritten either (updater fails safe on it)" equals "$(cat "$TMT88V_ROOT$SUPPORT_DIR/config.json")" "garbage not json"
+
+echo "automatic updater: idempotent"
+new_fixture updidem
+run_install; run_install; run_install
+check "repeat installs succeed" updater_running
+check "updater loaded exactly once" bash -c "[[ \$(ls '$STUB_STATE'/loaded.updater* | wc -l | tr -d ' ') -eq 1 ]]"
+check "config unchanged and valid" file_has "$TMT88V_ROOT$SUPPORT_DIR/config.json" '"automaticUpdates": true'
+
+echo "automatic updater: installed BY the updater (its own launchd job must not be touched)"
+new_fixture selfupd
+run_install; : > "$STUB_STATE/calls"
+printf '%s\n' "$$" > "$TMT88V_ROOT$SUPPORT_DIR/state/update-in-progress"
+run_install "new" "newer-updater"
+check "upgrade started by the updater succeeds" equals "$?" "0"
+check "updater job is not booted out" calls_lack "launchctl bootout system/$UPDATER_LABEL"
+check "updater job is not re-bootstrapped" calls_lack "launchctl bootstrap system $UPDATER_PLIST_PATH"
+check "log explains why" file_has "$TMT88V_ROOT$LOG_DIR/install.log" "started by the updater"
+check "print service was still replaced normally" calls_have "launchctl bootstrap system $PLIST_PATH"
+check "new updater binary is on disk for the next scheduled run" file_has "$TMT88V_ROOT$UPDATER_BINARY_PATH" "# newer-updater"
+sleep 0 & dead=$!; wait $dead
+printf '%s\n' "$dead" > "$TMT88V_ROOT$SUPPORT_DIR/state/update-in-progress"; : > "$STUB_STATE/calls"
+run_install; check "stale marker (dead pid) is ignored; manual install reloads the updater" calls_have "launchctl bootstrap system $UPDATER_PLIST_PATH"
+
+echo "automatic updater: can never fail the print installation"
+new_fixture updfail; export STUB_FAIL_BOOTSTRAP_UPDATER=1
+run_install; check "updater bootstrap failure does not fail the install" equals "$?" "0"
+check "queue still created" equals "$(queue_count "$QUEUE_NAME")" "1"
+check "warning logged" file_has "$TMT88V_ROOT$LOG_DIR/install.log" "WARNING: could not bootstrap the updater job"
+new_fixture updbroken; export STUB_UPDATER_EXIT=137
+run_install; check "an updater binary that cannot execute does not fail the install" equals "$?" "0"
+check "print service is up regardless" service_running
+check "warning names the problem" file_has "$TMT88V_ROOT$LOG_DIR/install.log" "updater binary cannot be executed"
+check "install completed" state_is phase complete
+
+echo "automatic updater: rollback"
+new_fixture updrb; export STUB_SERVICE_DOWN=1
+run_install; check "failed first install" equals "$?" "12"
+check "rollback removes the new updater binary" test ! -e "$TMT88V_ROOT$UPDATER_BINARY_PATH"
+check "rollback removes the new updater plist" test ! -e "$TMT88V_ROOT$UPDATER_PLIST_PATH"
+check "rollback never loaded the updater" bash -c "! updater_running" 
+new_fixture updrb2
+run_install "old" "old-updater"; check "initial install" equals "$?" "0"
+export STUB_SERVICE_DOWN=1
+run_install "new" "new-updater"; check "failed upgrade" equals "$?" "12"
+check "failed upgrade restores the previous updater binary" file_has "$TMT88V_ROOT$UPDATER_BINARY_PATH" "# old-updater"
+check "failed upgrade restores the previous updater plist" file_has "$TMT88V_ROOT$UPDATER_PLIST_PATH" "updater-plist-old-updater"
+check "failed upgrade keeps the existing config" file_has "$TMT88V_ROOT$SUPPORT_DIR/config.json" "automaticUpdates"
+
 echo "uninstall targets only our resources"
 new_fixture uninstall
 echo "EPSON_TM_T88V|usb://EPSON/TM-T88V?serial=1|false" >> "$STUB_STATE/queues"
 echo "TMT88V_Compat_Test|$PRINTER_URI|true" >> "$STUB_STATE/queues"
 mkdir -p "$TMT88V_ROOT/Library/Printers/EPSON/TerminalPrinter"; echo driver > "$TMT88V_ROOT/Library/Printers/EPSON/TerminalPrinter/filter"
 run_install; check "install before uninstall" equals "$?" "0"
+echo "updater log" > "$TMT88V_ROOT$LOG_DIR/updater.log"
 ./scripts/uninstall.sh --yes > "$F/un.out" 2>&1; check "uninstall succeeds" equals "$?" "0"
 check "our queue removed" equals "$(queue_count "$QUEUE_NAME")" "0"
-check "service unloaded" test ! -f "$STUB_STATE/loaded"
+check "service unloaded" test ! -f "$STUB_STATE/loaded.service"
 check "binary removed" test ! -e "$TMT88V_ROOT$SERVICE_BINARY_PATH"
 check "plist removed" test ! -e "$TMT88V_ROOT$PLIST_PATH"
 check "support dir removed" test ! -e "$TMT88V_ROOT$SUPPORT_DIR"
+check "updater job unloaded" bash -c "! updater_running"
+check "updater binary removed" test ! -e "$TMT88V_ROOT$UPDATER_BINARY_PATH"
+check "updater plist removed" test ! -e "$TMT88V_ROOT$UPDATER_PLIST_PATH"
+check "config.json removed" test ! -e "$TMT88V_ROOT$SUPPORT_DIR/config.json"
+check "updater state removed" test ! -e "$TMT88V_ROOT$SUPPORT_DIR/state"
+check "updater log removed" test ! -e "$TMT88V_ROOT$LOG_DIR/updater.log"
 check "log dir removed" test ! -e "$TMT88V_ROOT$LOG_DIR"
 check "Epson queue remains" grep -q "^EPSON_TM_T88V|" "$STUB_STATE/queues"
 check "other test queue remains" grep -q "^TMT88V_Compat_Test|" "$STUB_STATE/queues"

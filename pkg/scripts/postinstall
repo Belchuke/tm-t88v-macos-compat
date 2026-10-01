@@ -81,6 +81,49 @@ lpadmin -p "$QUEUE" -E -v "$PRINTER_URI" -m everywhere -D "$QUEUE_DESCRIPTION" -
 verify_queue || fail "queue $QUEUE failed verification: $VERIFY_REASON"
 log "queue $QUEUE verified (device URI $(queue_device_uri), not shared)"
 
+# The automatic updater is installed last and on a best-effort basis: nothing here can fail or roll back the print install,
+# and nothing here touches the network.
+setup_updater() {
+    log "configuring the automatic updater"
+    if [[ ! -f "$ROOT$UPDATER_BINARY" || ! -f "$ROOT$UPDATER_PLIST" ]]; then
+        log "WARNING: updater files are missing from the package payload; skipping updater setup"
+        return 0
+    fi
+    chmod 755 "$ROOT$UPDATER_BINARY" "$STATE_DIR"
+    chmod 644 "$ROOT$UPDATER_PLIST"
+    if [[ -z "$ROOT" ]]; then
+        chown root:wheel "$UPDATER_BINARY" "$UPDATER_PLIST" "$STATE_DIR" || log "WARNING: could not set updater ownership"
+    fi
+
+    if [[ -e "$ROOT$CONFIG_FILE" ]]; then
+        log "kept the existing config.json"
+    else
+        mkdir -p "$(dirname "$ROOT$CONFIG_FILE")"
+        if cp "$ROOT$SUPPORT_DIR/share/config.default.json" "$ROOT$CONFIG_FILE"; then
+            chmod 644 "$ROOT$CONFIG_FILE"
+            [[ -z "$ROOT" ]] && chown root:wheel "$CONFIG_FILE"
+            log "created the default config.json (automatic updates enabled)"
+        else
+            log "WARNING: could not create the default config.json"
+        fi
+    fi
+
+    "$ROOT$UPDATER_BINARY" --help > /dev/null 2>&1 || { log "WARNING: the updater binary cannot be executed (exit $?); updater not started"; return 0; }
+
+    if update_in_progress; then
+        log "this installation was started by the updater: its launchd job is left running untouched"
+        return 0
+    fi
+    launchctl bootout "system/$UPDATER_LABEL" > /dev/null 2>&1 || true
+    launchctl enable "system/$UPDATER_LABEL" > /dev/null 2>&1 || true
+    if launchctl bootstrap system "$UPDATER_PLIST"; then
+        log "updater job bootstrapped ($UPDATER_LABEL)"
+    else
+        log "WARNING: could not bootstrap the updater job; automatic updates will start after the next restart"
+    fi
+}
+setup_updater || true
+
 state_set phase complete
 log "installation complete"
 exit 0

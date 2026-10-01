@@ -10,6 +10,7 @@ BUNDLE_ID_PREFIX="${BUNDLE_ID_PREFIX:-com.belchuke.tmt88vcompat}"
 SERVICE_LABEL="${SERVICE_LABEL:-$BUNDLE_ID_PREFIX.service}"
 PKG_IDENTIFIER="${PKG_IDENTIFIER:-$BUNDLE_ID_PREFIX.pkg}"
 MANAGER_IDENTIFIER="$BUNDLE_ID_PREFIX.manager"
+UPDATER_LABEL="${UPDATER_LABEL:-$BUNDLE_ID_PREFIX.updater}"
 
 QUEUE_NAME="${QUEUE_NAME:-TMT88V_Compat}"
 QUEUE_DESCRIPTION="${QUEUE_DESCRIPTION:-EPSON TM-T88V}"
@@ -21,6 +22,10 @@ PRINTER_URI="ipp://127.0.0.1:$IPP_PORT/ipp/print"
 # The launchd label ends in ".service" (that is fine for a label); the file is therefore named ".daemon".
 SERVICE_BINARY_NAME="${SERVICE_BINARY_NAME:-$BUNDLE_ID_PREFIX.daemon}"
 SERVICE_BINARY_PATH="/Library/PrivilegedHelperTools/$SERVICE_BINARY_NAME"
+# The updater binary is likewise never named *.service or *.app (see the comment above).
+UPDATER_BINARY_NAME="${UPDATER_BINARY_NAME:-$BUNDLE_ID_PREFIX.updater}"
+UPDATER_BINARY_PATH="/Library/PrivilegedHelperTools/$UPDATER_BINARY_NAME"
+UPDATER_PLIST_PATH="/Library/LaunchDaemons/$UPDATER_LABEL.plist"
 PLIST_PATH="/Library/LaunchDaemons/$SERVICE_LABEL.plist"
 SUPPORT_DIR="/Library/Application Support/TMT88VCompat"
 LOG_DIR="/Library/Logs/TMT88VCompat"
@@ -33,12 +38,13 @@ DIST_DIR="${DIST_DIR:-$REPO_ROOT/dist}"
 BUILD_DIR="${BUILD_DIR:-$REPO_ROOT/build}"
 PKG_FILE_BASENAME="TMT88VCompat-$VERSION"
 
-BINARIES=(tmt88v-service tmt88v-diag tmt88v-test tmt88v-raster-test)
+BINARIES=(tmt88v-service tmt88v-updater tmt88v-diag tmt88v-test tmt88v-raster-test)
 
 # Code signing identifier for a built binary name.
 signing_identifier() {
     case "$1" in
         tmt88v-service) echo "$SERVICE_LABEL" ;;
+        tmt88v-updater) echo "$UPDATER_LABEL" ;;
         tmt88v-diag) echo "$BUNDLE_ID_PREFIX.diag" ;;
         tmt88v-test) echo "$BUNDLE_ID_PREFIX.test" ;;
         tmt88v-raster-test) echo "$BUNDLE_ID_PREFIX.raster-test" ;;
@@ -56,6 +62,9 @@ render_template() {
         -e "s|@PRINTER_URI@|$PRINTER_URI|g" \
         -e "s|@PORT@|$IPP_PORT|g" \
         -e "s|@SERVICE_BINARY_PATH@|$SERVICE_BINARY_PATH|g" \
+        -e "s|@UPDATER_LABEL@|$UPDATER_LABEL|g" \
+        -e "s|@UPDATER_BINARY_PATH@|$UPDATER_BINARY_PATH|g" \
+        -e "s|@UPDATER_PLIST_PATH@|$UPDATER_PLIST_PATH|g" \
         -e "s|@PLIST_PATH@|$PLIST_PATH|g" \
         -e "s|@SUPPORT_DIR@|$SUPPORT_DIR|g" \
         -e "s|@LOG_DIR@|$LOG_DIR|g" \

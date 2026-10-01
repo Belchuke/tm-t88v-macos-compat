@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/config.sh
 
-: "${NOTARY_PROFILE:?set NOTARY_PROFILE to a notarytool keychain profile (see docs/NOTARIZATION.md)}"
+: "${NOTARY_PROFILE:?set NOTARY_PROFILE to a notarytool keychain profile (xcrun notarytool store-credentials)}"
 PKG="${1:-$BUILD_DIR/pkg/$PKG_FILE_BASENAME.pkg}"
 [[ -f "$PKG" ]] || { echo "package not found: $PKG (run scripts/build-pkg.sh with INSTALLER_SIGNING_IDENTITY set)"; exit 1; }
 
@@ -36,3 +36,16 @@ xcrun stapler staple "$PKG"
 xcrun stapler validate "$PKG"
 spctl -a -vvv -t install "$PKG"
 echo "notarized and stapled: $PKG"
+
+# The stable-name asset is created ONLY now, from the finalized (notarized + stapled) bytes. Copying earlier would leave it
+# without the stapled ticket and no longer identical to the versioned file. Never notarize the alias separately.
+ALIAS="$(dirname "$PKG")/TMT88VCompat.pkg"
+if [[ "$(basename "$PKG")" == "$PKG_FILE_BASENAME.pkg" ]]; then
+    cp -f "$PKG" "$ALIAS"
+    a="$(shasum -a 256 "$PKG" | cut -d' ' -f1)"
+    b="$(shasum -a 256 "$ALIAS" | cut -d' ' -f1)"
+    [[ "$a" == "$b" ]] || { echo "ERROR: $ALIAS differs from $PKG after copying"; exit 1; }
+    echo "release assets (identical, sha256 $a):"
+    shasum -a 256 "$PKG" "$ALIAS"
+    echo "next: ./scripts/verify-release.sh"
+fi

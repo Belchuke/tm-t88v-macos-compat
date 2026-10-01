@@ -15,6 +15,9 @@ state_set service_loaded_before 0
 state_set binary_existed_before 0
 state_set queue_existed_before 0
 state_set queue_created_this_run 0
+state_set updater_binary_existed_before 0
+rm -rf "$BACKUP_DIR"
+mkdir -p "$BACKUP_DIR"
 
 if queue_exists; then
     existing_uri="$(queue_device_uri)"
@@ -28,10 +31,14 @@ if service_loaded; then
 fi
 if [[ -f "$ROOT$SERVICE_BINARY" ]]; then
     state_set binary_existed_before 1
-    rm -rf "$BACKUP_DIR"
-    mkdir -p "$BACKUP_DIR"
     cp -p "$ROOT$SERVICE_BINARY" "$BACKUP_DIR/service"
     [[ -f "$ROOT$PLIST" ]] && cp -p "$ROOT$PLIST" "$BACKUP_DIR/plist"
+fi
+
+if [[ -f "$ROOT$UPDATER_BINARY" ]]; then
+    state_set updater_binary_existed_before 1
+    cp -p "$ROOT$UPDATER_BINARY" "$BACKUP_DIR/updater"
+    [[ -f "$ROOT$UPDATER_PLIST" ]] && cp -p "$ROOT$UPDATER_PLIST" "$BACKUP_DIR/updater.plist"
 fi
 
 if service_loaded; then

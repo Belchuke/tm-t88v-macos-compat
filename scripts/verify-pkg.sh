@@ -40,9 +40,10 @@ trap 'rm -rf "$EXPAND"' EXIT
 pkgutil --expand-full "$PKG" "$EXPAND/x" > /dev/null 2>&1 || fail "pkgutil --expand-full failed"
 payload="$(find "$EXPAND/x" -path '*Payload*' -type f | sed "s|^.*/Payload||" | sort)"
 echo "$payload" | sed 's/^/  /'
-for expected in "$SERVICE_BINARY_PATH" "$PLIST_PATH" "$SUPPORT_DIR/bin/tmt88v-diag" "$SUPPORT_DIR/share/healthcheck.test" "$SUPPORT_DIR/uninstall.sh"; do
+for expected in "$SERVICE_BINARY_PATH" "$PLIST_PATH" "$UPDATER_BINARY_PATH" "$UPDATER_PLIST_PATH" "$SUPPORT_DIR/share/config.default.json" "$SUPPORT_DIR/bin/tmt88v-diag" "$SUPPORT_DIR/share/healthcheck.test" "$SUPPORT_DIR/uninstall.sh"; do
     echo "$payload" | grep -qxF "$expected" || fail "payload missing $expected"
 done
+echo "$payload" | grep -qx "$SUPPORT_DIR/config.json" && fail "payload ships config.json, which would overwrite a customer's setting on upgrade"
 echo "$payload" | grep -qi "epson" && fail "payload touches an Epson path"
 echo "$payload" | grep -q "^/Library/Printers" && fail "payload touches /Library/Printers"
 
@@ -53,17 +54,26 @@ if [[ -n "$service_in_pkg" ]]; then
     codesign -dv --verbose=4 "$service_in_pkg" 2>&1 | grep -E "^(Identifier|TeamIdentifier|Authority=Developer ID Application|Timestamp)" | sed 's/^/  /'
 fi
 echo "-- exec smoke test (the packaged service under its installed file name)"
-base="$(basename "$SERVICE_BINARY_PATH")"
-case "$base" in
-    *.service|*.app|*.bundle|*.framework|*.xpc|*.plugin) fail "service file name '$base' ends in a bundle-style extension; macOS may kill it at exec" ;;
-esac
-if [[ -n "$service_in_pkg" ]]; then
-    smoke="$(mktemp -d)/$base"
-    cp "$service_in_pkg" "$smoke"
-    "$smoke" --help > /dev/null 2>&1
-    rc=$?
-    [[ $rc -eq 0 ]] && echo "  '$base --help' exited 0" || fail "'$base --help' exited $rc (137 = killed at exec)"
-fi
+updater_in_pkg="$(find "$EXPAND/x" -path "*Payload$UPDATER_BINARY_PATH" -type f | head -1)"
+for entry in "$SERVICE_BINARY_PATH:$service_in_pkg" "$UPDATER_BINARY_PATH:$updater_in_pkg"; do
+    installed_path="${entry%%:*}"
+    extracted="${entry#*:}"
+    base="$(basename "$installed_path")"
+    case "$base" in
+        *.service|*.app|*.bundle|*.framework|*.xpc|*.plugin) fail "file name '$base' ends in a bundle-style extension; macOS may kill it at exec" ;;
+    esac
+    if [[ -n "$extracted" ]]; then
+        smoke="$(mktemp -d)/$base"
+        cp "$extracted" "$smoke"
+        "$smoke" --help > /dev/null 2>&1
+        rc=$?
+        [[ $rc -eq 0 ]] && echo "  '$base --help' exited 0" || fail "'$base --help' exited $rc (137 = killed at exec)"
+        codesign --verify --deep --strict "$extracted" 2>&1 | sed 's/^/  /'
+        [[ ${PIPESTATUS[0]} -eq 0 ]] || fail "$base inside the package fails codesign verification"
+    else
+        fail "$base not found inside the package"
+    fi
+done
 for script in preinstall postinstall lib.sh; do
     find "$EXPAND/x" -path "*Scripts/$script" -type f | grep -q . || fail "package script $script missing"
 done

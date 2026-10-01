@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>TM-T88V Compatibility Service</title>
+    <options customize="never" require-scripts="true" hostArchitectures="arm64"/>
+    <allowed-os-versions>
+        <os-version min="@MIN_MACOS@"/>
+    </allowed-os-versions>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+    <choices-outline>
+        <line choice="default"/>
+    </choices-outline>
+    <choice id="default" title="TM-T88V Compatibility Service" description="Native Apple Silicon print service and local print queue for the Epson TM-T88V.">
+        <pkg-ref id="@PKG_ID@"/>
+    </choice>
+    <pkg-ref id="@PKG_ID@" version="@VERSION@" onConclusion="none">component.pkg</pkg-ref>
+</installer-gui-script>

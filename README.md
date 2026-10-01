@@ -65,3 +65,17 @@ file dist/tmt88v-diag dist/tmt88v-test
 lipo -archs dist/tmt88v-diag dist/tmt88v-test
 otool -L dist/tmt88v-diag dist/tmt88v-test
 ```
+
+## Signing and distribution
+
+Binaries are signed with a Developer ID Application identity passed in `SIGNING_IDENTITY` (never
+stored in the repository):
+
+```
+./scripts/signing-identities.sh                   # find your identity
+SIGNING_IDENTITY="Developer ID Application: Name (TEAMID)" ./scripts/build.sh
+./scripts/verify-signing.sh
+```
+
+See [docs/SIGNING.md](docs/SIGNING.md), [docs/INSTALLER.md](docs/INSTALLER.md),
+[docs/NOTARIZATION.md](docs/NOTARIZATION.md) and [docs/UNINSTALL.md](docs/UNINSTALL.md).

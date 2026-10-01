@@ -1,0 +1,86 @@
+#!/bin/bash
+set -uo pipefail
+. "$(dirname "$0")/lib.sh"
+
+fail() {
+    log "ERROR: $*"
+    rollback
+    log "installation failed and was rolled back; existing Epson queues and files were not touched"
+    exit 1
+}
+
+# A service start failure: diagnostics first, always. Rollback follows unless the developer debug mode is on.
+fail_service() {
+    log "ERROR: $*"
+    collect_diagnostics
+    if keep_failed_state; then
+        log "DEBUG MODE: rollback intentionally SKIPPED so the failed state can be inspected."
+        log "The service files, launchd job and logs were left in place. Remove them with: sudo '$SUPPORT_DIR/uninstall.sh' --yes"
+        state_set phase failed-kept-for-debugging
+        exit 1
+    fi
+    rollback
+    log "installation failed and was rolled back; existing Epson queues and files were not touched"
+    exit 1
+}
+
+log "postinstall start"
+state_set phase postinstall
+
+[[ -f "$ROOT$SERVICE_BINARY" ]] || fail "service binary missing at $SERVICE_BINARY"
+[[ -f "$ROOT$PLIST" ]] || fail "launchd plist missing at $PLIST"
+
+if [[ -z "$ROOT" ]]; then
+    chown root:wheel "$SERVICE_BINARY" "$PLIST" || fail "could not set ownership"
+    mkdir -p "$LOG_DIR"
+    chown "$SERVICE_USER" "$LOG_DIR" || fail "could not set log directory ownership"
+else
+    mkdir -p "$ROOT$LOG_DIR"
+fi
+chmod 755 "$ROOT$SERVICE_BINARY" "$ROOT$LOG_DIR"
+chmod 644 "$ROOT$PLIST"
+
+# Canary: run the installed binary once outside launchd. A binary the system kills at exec (exit 137, SIGKILL) never
+# reaches main() and leaves no log, which is exactly how a bad file name or signature shows up.
+"$ROOT$SERVICE_BINARY" --help > /dev/null 2>&1
+canary=$?
+if [[ "$canary" != "0" ]]; then
+    hint=""
+    [[ "$canary" == "137" ]] && hint=" (137 = killed with SIGKILL at exec, typically a Gatekeeper/syspolicyd or code signature rejection)"
+    fail_service "the installed service binary cannot be executed: '$SERVICE_BINARY --help' exited $canary$hint"
+fi
+log "service binary executes"
+
+launchctl bootout "system/$LABEL" > /dev/null 2>&1 || true
+launchctl enable "system/$LABEL" > /dev/null 2>&1 || true
+launchctl bootstrap system "$PLIST" || fail_service "launchctl could not bootstrap $LABEL"
+log "service bootstrapped"
+
+ready=0
+for _ in $(seq 1 30); do
+    if ipptool -t "$PRINTER_URI" "$SUPPORT_DIR/share/healthcheck.test" > /dev/null 2>&1; then
+        ready=1
+        break
+    fi
+    sleep 1
+done
+if [[ "$ready" != "1" ]]; then
+    fail_service "the service did not answer on $PRINTER_URI within 30 seconds"
+fi
+log "service answers on $PRINTER_URI"
+
+if queue_exists; then
+    log "updating existing queue $QUEUE"
+else
+    state_set queue_created_this_run 1
+    log "creating queue $QUEUE"
+fi
+lpadmin -p "$QUEUE" -E -v "$PRINTER_URI" -m everywhere -D "$QUEUE_DESCRIPTION" -o printer-is-shared=false \
+    || fail "lpadmin could not create or update queue $QUEUE"
+
+verify_queue || fail "queue $QUEUE failed verification: $VERIFY_REASON"
+log "queue $QUEUE verified (device URI $(queue_device_uri), not shared)"
+
+state_set phase complete
+log "installation complete"
+exit 0

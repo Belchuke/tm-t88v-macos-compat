@@ -12,6 +12,7 @@ usage: tmt88v-service [options]
   --name NAME       printer name advertised over IPP (default "EPSON TM-T88V")
   --serial SERIAL   use the TM-T88V with this USB serial
   --log-file PATH   also write JSON-line logs to PATH (rotated at 1 MB, 3 files kept)
+  --quiet           do not echo log lines to stderr (use with --log-file when run by launchd)
   --max-job-mb N    reject documents larger than N MB (default 64)
 
 Listens on 127.0.0.1 and ::1 only. No Bonjour/DNS-SD advertisement.
@@ -26,6 +27,7 @@ var config = IppServerConfig()
 var sinkPath: String?
 var serial: String?
 var logPath: String?
+var quiet = false
 
 var remaining = Array(CommandLine.arguments.dropFirst())
 while !remaining.isEmpty {
@@ -51,6 +53,7 @@ while !remaining.isEmpty {
     case "--name": config.printerName = value()
     case "--serial": serial = value()
     case "--log-file": logPath = value()
+    case "--quiet": quiet = true
     case "--max-job-mb":
         guard let mb = Int(value()), mb > 0, mb <= 512 else { fail("--max-job-mb must be 1-512") }
         config.maxJobBytes = mb * 1024 * 1024
@@ -58,7 +61,7 @@ while !remaining.isEmpty {
     }
 }
 
-let log = ServiceLog(fileURL: logPath.map { URL(fileURLWithPath: $0) })
+let log = ServiceLog(fileURL: logPath.map { URL(fileURLWithPath: $0) }, echoToStderr: !quiet)
 let output: PrintOutput = sinkPath.map { SinkOutput(path: $0) } ?? UsbOutput(model: config.model, serial: serial)
 let jobs = JobManager(service: PrintService(model: config.model, output: output), log: log)
 let server = IppHTTPServer(config: config, handler: IppRequestHandler(config: config, jobs: jobs, log: log), log: log)

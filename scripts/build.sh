@@ -2,17 +2,24 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+source scripts/config.sh
 
 swift build -c release --arch arm64
 BIN_DIR="$(swift build -c release --arch arm64 --show-bin-path)"
 
-mkdir -p dist
-for tool in tmt88v-diag tmt88v-test tmt88v-raster-test tmt88v-service; do
-    cp "$BIN_DIR/$tool" "dist/$tool"
+mkdir -p "$DIST_DIR"
+for tool in "${BINARIES[@]}"; do
+    cp "$BIN_DIR/$tool" "$DIST_DIR/$tool"
 done
 
+if [[ -n "${SIGNING_IDENTITY:-}" ]]; then
+    ./scripts/sign.sh
+else
+    echo "SIGNING_IDENTITY not set: binaries are NOT Developer ID signed (see docs/SIGNING.md)"
+fi
+
 status=0
-for binary in dist/*; do
+for binary in "$DIST_DIR"/tmt88v-*; do
     echo "== $binary"
     file "$binary"
     archs="$(lipo -archs "$binary")"

@@ -2,3 +2,22 @@
 .swiftpm/
 *.xcodeproj
 dist/
+build/
+
+# Xcode
+DerivedData/
+*.xcuserstate
+xcuserdata/
+
+# Apple credentials/signing material
+*.p8
+*.p12
+*.pem
+*.key
+*.mobileprovision
+
+# macOS
+.DS_Store
+
+# Local logs
+*.log

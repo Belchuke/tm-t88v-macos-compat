@@ -89,7 +89,7 @@ built.
 
 ## Printer identity and queue name
 
-Not tested. The IPP `printer-name` is configurable (`--name`, default `EPSON TM-T88V`). The CUPS
+Not tested with the legacy applications. The IPP `printer-name` is configurable (`--name`, default `EPSON TM-T88V`). The CUPS
 queue name, device URI and queue UUID are chosen when the queue is created, so a replacement queue
 can reuse the visible name `EPSON TM-T88V` (queue `EPSON_TM_T88V`) only after the old queue is
 removed. Applications that persist the old printer UUID, or the old PPD options, cannot be helped by
@@ -106,4 +106,4 @@ Per job: `job_id`, `format`, `pages`, `blank_pages`, `raster_width`, `raster_hei
 
 Media-ready/paper status from the printer, `printer-state-reasons` from USB status, retry when the
 printer is unplugged (a job fails and is `aborted`), Create-Job/Send-Document, launchd service,
-queue creation, any real CUPS queue test (see TESTING.md).
+queue creation. A real CUPS queue has since been created and printed through by the owner (see TESTING.md).

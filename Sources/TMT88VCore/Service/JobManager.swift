@@ -18,6 +18,7 @@ public struct PrintJob: Sendable {
     public var state: JobState = .pending
     public var reason = "none"
     public var message = ""
+    public var requested: [String: String] = [:]
     public var created = Date()
     public var finished: Date?
     var document: Data?
@@ -48,15 +49,16 @@ public final class JobManager: @unchecked Sendable {
         lock.withLock { jobs.values.contains { $0.state == .processing } }
     }
 
-    public func submit(name: String, format: String, document: Data) -> PrintJob {
+    public func submit(name: String, format: String, document: Data, requested: [String: String] = [:]) -> PrintJob {
         let job: PrintJob = lock.withLock {
-            let job = PrintJob(id: nextID, name: name, format: format, size: document.count, document: document)
+            var job = PrintJob(id: nextID, name: name, format: format, size: document.count, document: document)
+            job.requested = requested
             nextID += 1
             jobs[job.id] = job
             order.append(job.id)
             return job
         }
-        log.event("job_received", ["job_id": job.id, "format": format, "bytes": document.count])
+        log.event("job_received", ["job_id": job.id, "format": format, "bytes": document.count, "requested": job.requested])
         queue.async { [self] in run(jobID: job.id) }
         return job
     }
@@ -106,10 +108,14 @@ public final class JobManager: @unchecked Sendable {
                 "raster_width": outcome.rasterWidth, "raster_height": outcome.rasterHeight, "dpi": outcome.dpi,
                 "escpos_bytes": outcome.encodedBytes, "connection": outcome.connection,
                 "transfer_ms": outcome.transferMilliseconds, "total_ms": elapsed(since: begin),
+                "cuts": outcome.cuts, "requested": job.requested,
+                "page_details": outcome.pageDetails.map(\.logFields),
             ])
         } catch {
             finish(jobID, state: .aborted, reason: "job-aborted-by-system", message: "\(error)")
-            log.event("job_failed", ["job_id": jobID, "format": job.format, "error": "\(error)", "total_ms": elapsed(since: begin)])
+            log.event("job_failed", [
+                "job_id": jobID, "format": job.format, "error": "\(error)", "total_ms": elapsed(since: begin), "requested": job.requested,
+            ])
         }
     }
 

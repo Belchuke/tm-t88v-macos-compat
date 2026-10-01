@@ -19,6 +19,59 @@ public final class IppRequestHandler: @unchecked Sendable {
     }
 
     public func handle(_ body: Data) -> Data {
+        let response = process(body)
+        let code = response.count >= 4 ? UInt16(response[response.startIndex + 2]) << 8 | UInt16(response[response.startIndex + 3]) : 0
+        let operation = body.count >= 4 ? UInt16(body[body.startIndex + 2]) << 8 | UInt16(body[body.startIndex + 3]) : 0
+        log.event("ipp_request", [
+            "operation": IppRequestHandler.operationName(operation),
+            "status": "0x" + String(format: "%04x", code),
+            "request_bytes": body.count,
+        ])
+        return response
+    }
+
+    static func operationName(_ code: UInt16) -> String {
+        switch code {
+        case IppOperation.printJob: "Print-Job"
+        case IppOperation.validateJob: "Validate-Job"
+        case IppOperation.createJob: "Create-Job"
+        case IppOperation.sendDocument: "Send-Document"
+        case IppOperation.cancelJob: "Cancel-Job"
+        case IppOperation.getJobAttributes: "Get-Job-Attributes"
+        case IppOperation.getJobs: "Get-Jobs"
+        case IppOperation.getPrinterAttributes: "Get-Printer-Attributes"
+        default: "0x" + String(format: "%04x", code)
+        }
+    }
+
+    static let loggedJobAttributes = [
+        "media", "media-col", "copies", "orientation-requested", "print-color-mode", "print-quality",
+        "printer-resolution", "sides", "print-scaling", "number-up", "page-ranges", "finishings", "document-format",
+    ]
+
+    static func describe(_ value: IppValue) -> String {
+        switch value {
+        case .integer(let v), .enumeration(let v): "\(v)"
+        case .boolean(let v): "\(v)"
+        case .range(let lo, let hi): "\(lo)-\(hi)"
+        case .resolution(let x, let y, let units): "\(x)x\(y)\(units == 3 ? "dpi" : "dpcm")"
+        case .collection(let members):
+            "{" + members.map { "\($0.name)=" + $0.values.map(describe).joined(separator: ",") }.joined(separator: " ") + "}"
+        default: value.string ?? "?"
+        }
+    }
+
+    static func requestedAttributes(_ groups: [IppGroup?]) -> [String: String] {
+        var result: [String: String] = [:]
+        for case let group? in groups {
+            for attribute in group.attributes where loggedJobAttributes.contains(attribute.name) {
+                result[attribute.name] = attribute.values.map(describe).joined(separator: ",")
+            }
+        }
+        return result
+    }
+
+    private func process(_ body: Data) -> Data {
         let parsed: (message: IppMessage, bodyOffset: Int)
         do {
             parsed = try IppCodec.decode(body)
@@ -64,7 +117,8 @@ public final class IppRequestHandler: @unchecked Sendable {
             if let failure = checkFormat(operation, document: document) { return reply(failure.status, failure.message, extra: failure.groups) }
             let format = RasterFormat.detect(document)?.rawValue ?? "unknown"
             let name = operation["job-name"]?.values.first?.string ?? "Untitled"
-            let job = jobs.submit(name: name, format: format, document: document)
+            let requested = Self.requestedAttributes([operation, request.group(IppTag.jobGroup)])
+            let job = jobs.submit(name: name, format: format, document: document, requested: requested)
             return reply(IppStatus.ok, extra: [IppGroup(tag: IppTag.jobGroup, attributes: Array(jobAttributes(job).prefix(5)))])
 
         case IppOperation.getJobAttributes:

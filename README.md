@@ -2,11 +2,9 @@
 
 A native Apple Silicon compatibility layer for the Epson TM-T88V USB receipt printer.
 
-The project replaces Epson's legacy Intel-based macOS printing components with a modern native solution while preserving the standard macOS printing workflow used by existing applications.
+It replaces Epson's legacy Intel-based macOS printing components while preserving the standard macOS printing workflow used by existing applications.
 
 ## How it works
-
-Applications continue to print through the normal macOS printing system:
 
 ```text
 Application
@@ -44,17 +42,8 @@ Applications that already use the built-in macOS printing system do not need to 
 - Automatic paper cutting
 - Signed and notarized macOS installer
 - Automatic background service using `launchd`
-- Automatic updates from official GitHub Releases (from v0.2.0)
+- Secure automatic updates
 - No third-party runtime dependencies
-
-## Updates
-
-Starting with v0.2.0, updates are installed automatically in the background. Nothing needs to be done after installing.
-
-- Updates are downloaded only from the official GitHub Releases of this project.
-- Each package is verified before installation: it must be signed by this project's Developer ID and notarized by Apple.
-- If anything cannot be verified, the current installation is left untouched.
-- To turn automatic updates off, set `"automaticUpdates": false` in `/Library/Application Support/TMT88VCompat/config.json`.
 
 ## Requirements
 
@@ -65,14 +54,19 @@ Starting with v0.2.0, updates are installed automatically in the background. Not
 
 ## Installation
 
-Download the latest `.pkg` from the GitHub Releases page and run the installer.
+Download the latest customer installer:
 
-The installer will:
+**[Download TMT88VCompat-0.2.0.pkg](https://github.com/Belchuke/tm-t88v-macos-compat/releases/download/v0.2.0/TMT88VCompat-0.2.0.pkg)**
 
-- install the native compatibility service
-- start the background service
-- create the `TMT88V_Compat` printer queue
-- configure the printer to use the local IPP service
+Open the downloaded `.pkg` and follow the macOS installer.
+
+The installer:
+
+- installs the native compatibility service
+- starts the background service
+- creates the `TMT88V_Compat` printer queue
+- configures the printer to use the local IPP service
+- installs the automatic updater
 
 Existing Epson printer drivers and queues are not removed or modified.
 
@@ -83,6 +77,18 @@ TMT88V_Compat
 ```
 
 like any other macOS printer.
+
+## Automatic Updates
+
+Starting with v0.2.0, the compatibility layer updates itself automatically in the background.
+
+Updates are downloaded only from the official GitHub Releases for this repository and are verified before installation.
+
+The updater verifies the package signature, Apple Developer team, package identity, version, and Apple notarization before an update can be installed.
+
+No update prompts or user interaction are required.
+
+`TMT88VCompat.pkg` in each GitHub release is reserved for the automatic updater. For manual installation, use the versioned package such as `TMT88VCompat-0.2.0.pkg`.
 
 ## Building from source
 
@@ -156,7 +162,7 @@ The uninstaller removes only resources created by this project.
 
 Existing Epson printer drivers, Epson queues, and unrelated CUPS configuration are left untouched.
 
-## Known limitations
+## Known Limitations
 
 - Currently targets the Epson TM-T88V
 - Epson Vendor Class USB mode has not been fully hardware-tested
